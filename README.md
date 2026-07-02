@@ -1,29 +1,29 @@
-# 🧵 TerraThread — Modern Fashion Ecommerce Store
+# TerraThread — Modern Fashion Ecommerce Store
 
-TerraThread is a fully responsive, feature-rich ecommerce web application for a clothing brand — built with React, React Router, and Tailwind CSS. It includes product browsing, cart & wishlist management, authentication, an admin panel, and a polished, animated UI designed to feel like a real production storefront.
+TerraThread is a fully responsive, feature-rich ecommerce web application for a clothing brand — built with React, React Router, and Tailwind CSS. It includes product browsing, cart and wishlist management, authentication, an admin panel, and a polished, animated UI designed to feel like a real production storefront.
 
-**🔗 Live Demo:** [terrathread-store.vercel.app](https://terrathread-store.vercel.app/)
-
----
-
-## ✨ Features
-
-- 🛍️ **Product Catalog** — browse products by category with search and filtering
-- 🛒 **Shopping Cart** — add, update quantity, and remove items
-- ❤️ **Wishlist** — save favorite products for later
-- 🔐 **Authentication** — login/signup flow with protected account pages
-- 👤 **Account Settings & Order History** — manage profile and view past orders
-- 🛠️ **Admin Panel** — dedicated dashboard for store management
-- 🔎 **Live Search** — instant product search with category suggestions in the navbar
-- 📱 **Fully Responsive** — optimized experience across mobile, tablet, and desktop
-- 🎨 **Custom Animations** — scroll-triggered text reveals, animated counters, a custom cursor, and smooth section transitions
-- 🧭 **Smooth Navigation** — smart scroll-to-section behavior from any page
-- 📰 **Newsletter Signup** — email capture section
-- ⭐ **Customer Testimonials** — carousel with dot navigation
+**Live Demo:** [terrathread-store.vercel.app](https://terrathread-store.vercel.app/)
 
 ---
 
-## 🖥️ Pages
+## Features
+
+- **Product Catalog** — browse products by category with search and filtering
+- **Shopping Cart** — add, update quantity, and remove items
+- **Wishlist** — save favorite products for later
+- **Authentication** — login/signup flow with protected account pages
+- **Account Settings and Order History** — manage profile and view past orders
+- **Admin Panel** — dedicated dashboard for store management
+- **Live Search** — instant product search with category suggestions in the navbar
+- **Fully Responsive** — optimized experience across mobile, tablet, and desktop
+- **Custom Animations** — scroll-triggered text reveals, animated counters, a custom cursor, and smooth section transitions
+- **Smooth Navigation** — smart scroll-to-section behavior from any page
+- **Newsletter Signup** — email capture section
+- **Customer Testimonials** — carousel with dot navigation
+
+---
+
+## Pages
 
 | Page | Description |
 |---|---|
@@ -42,7 +42,7 @@ TerraThread is a fully responsive, feature-rich ecommerce web application for a 
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **React** — component-based UI
 - **React Router DOM** — client-side routing
@@ -53,7 +53,7 @@ TerraThread is a fully responsive, feature-rich ecommerce web application for a 
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 TerraThread/
@@ -73,7 +73,7 @@ TerraThread/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 Clone the repository and install dependencies:
 
@@ -97,21 +97,21 @@ npm run build
 
 ---
 
-## 📌 Roadmap
+## Roadmap
 
-- [ ] Payment gateway integration (Stripe/PayPal)
-- [ ] Product reviews & ratings on product detail pages
-- [ ] Backend API integration for real order/user data
-- [ ] Order tracking
-
----
-
-## 👩‍💻 Author
-
-**Mehreen** — [github.com/mehreencodes](https://github.com/mehreencodes)
+- Payment gateway integration (Stripe/PayPal)
+- Product reviews and ratings on product detail pages
+- Backend API integration for real order/user data
+- Order tracking
 
 ---
 
-## 📄 License
+## Author
+
+Mehreen — [github.com/mehreencodes](https://github.com/mehreencodes)
+
+---
+
+## License
 
 This project is open source and available for learning purposes.
