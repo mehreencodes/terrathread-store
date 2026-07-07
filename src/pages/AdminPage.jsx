@@ -1,7 +1,10 @@
+
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { products as allProducts } from "../data/products";
+import { collection, getDocs, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { db } from "../firebase";
 
 const statusOptions = ["processing", "shipped", "out_for_delivery", "delivered"];
 
@@ -12,13 +15,6 @@ const statusColor = {
   delivered:  { bg: '#DCFCE7', text: '#16A34A', label: 'Delivered ✓' },
   cancelled:  { bg: '#FEE2E2', text: '#DC2626', label: 'Cancelled' },
 };
-
-const demoOrders = [
-  { id: "TT-2026-001", date: "June 20, 2026", status: "delivered", items: [{ name: "Wrap Maxi Dress", price: 99, img: "https://i.pinimg.com/736x/a6/e8/1a/a6e81a5cb8a90a7d87b4349deba65024.jpg" }, { name: "Floral Wrap Skirt", price: 59, img: "https://i.pinimg.com/736x/a7/5d/2b/a75d2bdf2e3b2c6e7821a01fa23811e2.jpg" }], total: 158, address: "123 Summer Ave, Karachi", customer: "Sara Ahmed", email: "sara@email.com", phone: "+92 300 1234567" },
-  { id: "TT-2026-002", date: "June 23, 2026", status: "shipped", items: [{ name: "Silk Button-Up Blouse", price: 65, img: "https://i.pinimg.com/736x/e7/2c/2b/e72c2bd53f63c05fe854680d2155c8c6.jpg" }], total: 65, address: "456 Fashion St, Lahore", customer: "Aisha Khan", email: "aisha@email.com", phone: "+92 321 9876543" },
-  { id: "TT-2026-003", date: "June 25, 2026", status: "processing", items: [{ name: "Floral Maxi", price: 159, img: "https://i.pinimg.com/736x/43/42/34/4342340f7bcb807a74948b370e319962.jpg" }], total: 159, address: "789 Style Blvd, Islamabad", customer: "Zara Malik", email: "zara@email.com", phone: "+92 333 5551234" },
-  { id: "TT-2026-004", date: "June 24, 2026", status: "out_for_delivery", items: [{ name: "Satin Slip Dress", price: 92, img: "https://i.pinimg.com/736x/45/09/eb/4509eb931ed38c5bc0df32c06e692f4f.jpg" }], total: 92, address: "321 Trend Lane, Faisalabad", customer: "Nida Hussain", email: "nida@email.com", phone: "+92 345 7778899" },
-];
 
 function DonutChart({ segments, size = 160 }) {
   const total = segments.reduce((s, d) => s + d.value, 0);
@@ -106,16 +102,36 @@ function AdminPage() {
 
   const [activeTab,    setActiveTab]    = useState("dashboard");
   const [orders,       setOrders]       = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [expanded,     setExpanded]     = useState(null);
   const [saved,        setSaved]        = useState(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery,  setSearchQuery]  = useState("");
   const [notification, setNotification] = useState(null);
 
+  const isAdmin = user && user.email === "admin@terrathread.com";
+
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem('tt_orders') || '[]');
-    setOrders(stored.length > 0 ? stored : demoOrders);
-  }, []);
+    if (!isAdmin) {
+      setOrdersLoading(false);
+      return;
+    }
+    fetchAllOrders();
+  }, [isAdmin]);
+
+  const fetchAllOrders = async () => {
+    setOrdersLoading(true);
+    try {
+      const snap = await getDocs(collection(db, "orders"));
+      const fetched = snap.docs.map((d) => d.data());
+      fetched.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      setOrders(fetched);
+    } catch (err) {
+      console.error("Failed to fetch orders:", err);
+      setOrders([]);
+    }
+    setOrdersLoading(false);
+  };
 
   if (!user || user.email !== "admin@terrathread.com") {
     return (
@@ -142,27 +158,39 @@ function AdminPage() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const updateStatus = (id, status) => {
-    const updated = orders.map(o => o.id === id ? { ...o, status } : o);
-    setOrders(updated);
-    localStorage.setItem('tt_orders', JSON.stringify(updated));
-    setSaved(id); setTimeout(() => setSaved(null), 2000);
-    showNotif(`${id} → ${status.replace(/_/g, ' ')}`);
+  const updateStatus = async (id, status) => {
+    try {
+      await updateDoc(doc(db, "orders", id), { status });
+      setOrders((prev) => prev.map(o => o.id === id ? { ...o, status } : o));
+      setSaved(id); setTimeout(() => setSaved(null), 2000);
+      showNotif(`${id} → ${status.replace(/_/g, ' ')}`);
+    } catch (err) {
+      console.error("Failed to update status:", err);
+      showNotif("Failed to update order", "error");
+    }
   };
 
-  const cancelOrder = (id) => {
-    const updated = orders.map(o => o.id === id ? { ...o, status: 'cancelled' } : o);
-    setOrders(updated);
-    localStorage.setItem('tt_orders', JSON.stringify(updated));
-    showNotif(`Order ${id} cancelled`, 'error');
+  const cancelOrder = async (id) => {
+    try {
+      await updateDoc(doc(db, "orders", id), { status: "cancelled" });
+      setOrders((prev) => prev.map(o => o.id === id ? { ...o, status: 'cancelled' } : o));
+      showNotif(`Order ${id} cancelled`, 'error');
+    } catch (err) {
+      console.error("Failed to cancel order:", err);
+      showNotif("Failed to cancel order", "error");
+    }
   };
 
-  const deleteOrder = (id) => {
-    const updated = orders.filter(o => o.id !== id);
-    setOrders(updated);
-    localStorage.setItem('tt_orders', JSON.stringify(updated));
-    setExpanded(null);
-    showNotif(`Order ${id} deleted`, 'error');
+  const deleteOrder = async (id) => {
+    try {
+      await deleteDoc(doc(db, "orders", id));
+      setOrders((prev) => prev.filter(o => o.id !== id));
+      setExpanded(null);
+      showNotif(`Order ${id} deleted`, 'error');
+    } catch (err) {
+      console.error("Failed to delete order:", err);
+      showNotif("Failed to delete order", "error");
+    }
   };
 
   const totalRevenue     = orders.reduce((s, o) => s + o.total, 0);
@@ -192,6 +220,17 @@ function AdminPage() {
   const card = '#FFFFFF';
   const bdr  = '#EDE8E3';
   const dark = '#18171A';
+
+  if (ordersLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: bg }}>
+        <div
+          className="w-10 h-10 rounded-full border-2 animate-spin"
+          style={{ borderColor: bdr, borderTopColor: '#A8553D' }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex" style={{ background: bg }}>
@@ -376,9 +415,6 @@ function AdminPage() {
                   <table className="w-full">
                     <thead>
                       <tr style={{ background: '#FAFAF9' }}>
-                        {/* {["Order", "Customer", "Status", "Total", "Date"].map(h => (
-                          <th key={h} className="px-5 py-3 text-left font-body font-bold text-[10px] uppercase tracking-widest text-charcoal/30">{h}</th>
-                        ))} */}
                         {["Order", "Customer", "Status", "Total", "Date"].map((h, hi) => (
   <th key={h} className={`px-5 py-3 text-left font-body font-bold text-[10px] uppercase tracking-widest text-charcoal/30 ${hi >= 4 ? 'hidden md:table-cell' : ''}`}>{h}</th>
 ))}

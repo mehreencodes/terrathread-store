@@ -3,10 +3,10 @@ import { useAuth } from "../context/AuthContext";
 
 function LoginModal({ isOpen, onClose }) {
   const { signup, login, loginWithGoogle } = useAuth();
-  const [mode, setMode] = useState("login"); // "login" | "signup" | "google"
+  const [mode, setMode] = useState("login"); // "login" | "signup"
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
-  const [googleEmail, setGoogleEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -18,53 +18,49 @@ function LoginModal({ isOpen, onClose }) {
     setError("");
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    setTimeout(() => {
-      let result;
-      if (mode === "signup") {
-        result = signup(formData.name, formData.email, formData.password);
-      } else {
-        result = login(formData.email, formData.password);
-      }
+    let result;
+    if (mode === "signup") {
+      result = await signup(formData.name, formData.email, formData.password);
+    } else {
+      result = await login(formData.email, formData.password);
+    }
 
-      setLoading(false);
+    setLoading(false);
 
-      if (result.success) {
-        setSuccess(true);
-        setFormData({ name: "", email: "", password: "" });
-        setTimeout(() => {
-          setSuccess(false);
-          onClose();
-        }, 1500);
-      } else {
-        setError(result.message);
-      }
-    }, 700);
-  };
-
-  // Step 1 — click Google button → show fake Google account picker
-  const handleGoogleClick = () => {
-    setMode("google");
-    setError("");
-  };
-
-  // Step 2 — user picks an email → simulate Google auth
-  const handleGoogleAccountSelect = (email, name) => {
-    setLoading(true);
-    setTimeout(() => {
-      loginWithGoogle(name, email);
-      setLoading(false);
+    if (result.success) {
       setSuccess(true);
+      setFormData({ name: "", email: "", password: "" });
       setTimeout(() => {
         setSuccess(false);
         onClose();
-        setMode("login");
       }, 1500);
-    }, 900);
+    } else {
+      setError(result.message);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setError("");
+    setGoogleLoading(true);
+    try {
+      const result = await loginWithGoogle();
+      if (result.success) {
+        setSuccess(true);
+        setTimeout(() => {
+          setSuccess(false);
+          onClose();
+        }, 1200);
+      } else {
+        setError(result.message);
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   const switchMode = (newMode) => {
@@ -105,75 +101,6 @@ function LoginModal({ isOpen, onClose }) {
             </h2>
             <p className="font-body text-charcoal/50 text-sm mt-2">You're now logged in.</p>
           </div>
-        ) : mode === "google" ? (
-          /* ── Fake Google Account Picker ── */
-          <div>
-            <div className="flex items-center gap-3 mb-6">
-              <svg width="24" height="24" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-              </svg>
-              <div>
-                <p className="font-body font-bold text-base text-charcoal">Choose an account</p>
-                <p className="font-body text-xs text-charcoal/50">to continue to TerraThread</p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              {loading ? (
-                <div className="flex flex-col items-center justify-center py-10 gap-3">
-                  <div
-                    className="w-8 h-8 rounded-full border-2 animate-spin"
-                    style={{ borderColor: '#E8DCC8', borderTopColor: '#A8553D' }}
-                  />
-                  <p className="font-body text-xs text-charcoal/50">Signing you in...</p>
-                </div>
-              ) : (
-                <>
-                  {[
-                    { name: "Sara Ahmed", email: "sara.ahmed@gmail.com", color: '#A8553D' },
-                    { name: "Aisha Khan", email: "aisha.khan@gmail.com", color: '#2563EB' },
-                  ].map((acc) => (
-                    <button
-                      key={acc.email}
-                      onClick={() => handleGoogleAccountSelect(acc.email, acc.name)}
-                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-sand transition-colors cursor-pointer text-left"
-                    >
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0"
-                        style={{ background: acc.color, color: '#FBF8F3' }}
-                      >
-                        {acc.name.charAt(0)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-body font-semibold text-sm text-charcoal truncate">{acc.name}</p>
-                        <p className="font-body text-xs text-charcoal/50 truncate">{acc.email}</p>
-                      </div>
-                    </button>
-                  ))}
-
-                  <div className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-sand transition-colors cursor-pointer" onClick={() => switchMode("login")}>
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#F0EBE3' }}>
-                      <i className="ti ti-user-plus" style={{ fontSize: '16px', color: '#2D2A26' }} />
-                    </div>
-                    <p className="font-body font-semibold text-sm text-charcoal">Use another account</p>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {!loading && (
-              <button
-                onClick={() => switchMode("login")}
-                className="font-body text-xs font-bold uppercase tracking-wide mt-6 cursor-pointer"
-                style={{ color: '#A8553D' }}
-              >
-                ← Back to login
-              </button>
-            )}
-          </div>
         ) : (
           /* ── Login / Signup form ── */
           <>
@@ -187,17 +114,30 @@ function LoginModal({ isOpen, onClose }) {
             </p>
 
             <button
-              onClick={handleGoogleClick}
-              className="w-full flex items-center justify-center gap-3 bg-cream rounded-full py-3.5 font-body font-semibold text-charcoal hover:bg-sand transition-colors cursor-pointer mb-5"
+              onClick={handleGoogleLogin}
+              disabled={googleLoading}
+              className="w-full flex items-center justify-center gap-3 bg-cream rounded-full py-3.5 font-body font-semibold text-charcoal hover:bg-sand transition-colors cursor-pointer mb-5 disabled:opacity-50"
               style={{ border: '1.5px solid #E8DCC8' }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-              </svg>
-              Continue with Google
+              {googleLoading ? (
+                <>
+                  <div
+                    className="w-4 h-4 rounded-full border-2 animate-spin"
+                    style={{ borderColor: '#E8DCC8', borderTopColor: '#A8553D' }}
+                  />
+                  Signing you in...
+                </>
+              ) : (
+                <>
+                  <svg width="18" height="18" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  Continue with Google
+                </>
+              )}
             </button>
 
             <div className="flex items-center gap-3 mb-5">
@@ -257,7 +197,7 @@ function LoginModal({ isOpen, onClose }) {
                     value={formData.password}
                     onChange={handleChange}
                     required
-                    minLength={4}
+                    minLength={6}
                     className="w-full pl-11 pr-11 py-3 rounded-xl font-body text-sm text-charcoal outline-none transition-colors"
                     style={{ background: '#F5F0E8', border: '2px solid transparent' }}
                     onFocus={(e) => e.target.style.borderColor = '#A8553D'}
@@ -272,6 +212,11 @@ function LoginModal({ isOpen, onClose }) {
                     <i className={`ti ${showPassword ? 'ti-eye-off' : 'ti-eye'}`} style={{ fontSize: '16px', color: '#9A948D' }} />
                   </button>
                 </div>
+                {mode === "signup" && (
+                  <p className="font-body text-[10px] text-charcoal/40 mt-1.5">
+                    Must be at least 6 characters
+                  </p>
+                )}
               </div>
 
               {mode === "login" && (

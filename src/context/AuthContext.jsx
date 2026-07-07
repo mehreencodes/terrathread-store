@@ -1,74 +1,112 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile as firebaseUpdateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
+} from "firebase/auth";
+import { auth } from "../firebase";
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
+  // Listen for Firebase auth state changes (persists across refresh/devices)
   useEffect(() => {
-    const stored = localStorage.getItem("terrathread_user");
-    if (stored) setUser(JSON.parse(stored));
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser({
+          uid: firebaseUser.uid,
+          name: firebaseUser.displayName || "User",
+          email: firebaseUser.email,
+        });
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
-  const signup = (name, email, password) => {
-    const users = JSON.parse(localStorage.getItem("terrathread_users") || "[]");
-    const exists = users.find((u) => u.email === email);
-    if (exists) {
-      return { success: false, message: "An account with this email already exists." };
-    }
-    const newUser = { name, email, password };
-    users.push(newUser);
-    localStorage.setItem("terrathread_users", JSON.stringify(users));
-    const sessionUser = { name, email };
-    setUser(sessionUser);
-    localStorage.setItem("terrathread_user", JSON.stringify(sessionUser));
-    return { success: true };
-  };
-
-  const login = (email, password) => {
-    // Admin shortcut
-    if (email === "admin@terrathread.com") {
-      const sessionUser = { name: "Admin", email: "admin@terrathread.com" };
-      setUser(sessionUser);
-      localStorage.setItem("terrathread_user", JSON.stringify(sessionUser));
+  const signup = async (name, email, password) => {
+    try {
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      // Save the display name on the Firebase user profile
+      await firebaseUpdateProfile(result.user, { displayName: name });
+      setUser({ uid: result.user.uid, name, email });
       return { success: true };
+    } catch (err) {
+      let message = "Something went wrong. Please try again.";
+      if (err.code === "auth/email-already-in-use") {
+        message = "An account with this email already exists.";
+      } else if (err.code === "auth/weak-password") {
+        message = "Password should be at least 6 characters.";
+      } else if (err.code === "auth/invalid-email") {
+        message = "Please enter a valid email address.";
+      }
+      return { success: false, message };
     }
-
-    const users = JSON.parse(localStorage.getItem("terrathread_users") || "[]");
-    const found = users.find((u) => u.email === email && u.password === password);
-    if (!found) {
-      return { success: false, message: "Invalid email or password." };
-    }
-    const sessionUser = { name: found.name, email: found.email };
-    setUser(sessionUser);
-    localStorage.setItem("terrathread_user", JSON.stringify(sessionUser));
-    return { success: true };
   };
-const loginWithGoogle = (name, email) => {
-  const sessionUser = { name, email, provider: "google" };
-  setUser(sessionUser);
-  localStorage.setItem("terrathread_user", JSON.stringify(sessionUser));
-  return { success: true };
-};
 
-  const logout = () => {
+  const login = async (email, password) => {
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      setUser({
+        uid: result.user.uid,
+        name: result.user.displayName || "User",
+        email: result.user.email,
+      });
+      return { success: true };
+    } catch (err) {
+      let message = "Invalid email or password.";
+      if (err.code === "auth/user-not-found" || err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        message = "Invalid email or password.";
+      }
+      return { success: false, message };
+    }
+  };
+
+  const loginWithGoogle = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      setUser({
+        uid: result.user.uid,
+        name: result.user.displayName || "User",
+        email: result.user.email,
+        provider: "google",
+      });
+      return { success: true };
+    } catch (err) {
+      console.error("Google login error:", err.code, err.message);
+      return { success: false, message: "Google sign-in failed. Please try again." };
+    }
+  };
+
+  const logout = async () => {
+    await signOut(auth);
     setUser(null);
-    localStorage.removeItem("terrathread_user");
   };
 
-  const updateProfile = (name, email) => {
-    const sessionUser = { ...user, name, email };
-    setUser(sessionUser);
-    localStorage.setItem("terrathread_user", JSON.stringify(sessionUser));
-    const users = JSON.parse(localStorage.getItem("terrathread_users") || "[]");
-    const updatedUsers = users.map((u) =>
-      u.email === user.email ? { ...u, name, email } : u
-    );
-    localStorage.setItem("terrathread_users", JSON.stringify(updatedUsers));
+  const updateProfile = async (name, email) => {
+    try {
+      if (auth.currentUser) {
+        await firebaseUpdateProfile(auth.currentUser, { displayName: name });
+      }
+      setUser((prev) => ({ ...prev, name, email }));
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: "Could not update profile." };
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, signup, login, loginWithGoogle, logout, updateProfile }}>
+    <AuthContext.Provider value={{ user, loading, signup, login, loginWithGoogle, logout, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

@@ -17,6 +17,8 @@ import Contact from "./pages/Contact";
 import OrdersPage from "./pages/OrdersPage";
 import AdminPage from "./pages/AdminPage";
 import CustomCursor from "./components/CustomCursor";
+import WhatsAppButton from "./components/WhatsAppButton";
+import OrderSuccess from "./pages/OrderSuccess";
 
 
 function App() {
@@ -25,7 +27,7 @@ function App() {
       <WishlistProvider>
         <CartProvider>
           <CustomCursor />
-
+<WhatsAppButton />
           <BrowserRouter>
             <div className="bg-cream min-h-screen flex flex-col">
               <Navbar />
@@ -43,6 +45,7 @@ function App() {
                   <Route path="/contact" element={<Contact />} />
                   <Route path="/orders" element={<OrdersPage />} />
                   <Route path="/admin" element={<AdminPage />} />
+                  <Route path="/order-success" element={<OrderSuccess />} />
                 </Routes>
               </div>
               <Footer />

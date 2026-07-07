@@ -3,10 +3,16 @@ import { useCart } from "../context/CartContext";
 import { products } from "../data/products";
 import ProductCard from "../components/ProductCard";
 import { useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import { doc, setDoc } from "firebase/firestore";
+import { db } from "../firebase";
+import axios from "axios";
 
+const SAFEPAY_API_URL = "https://safepay-payment-beta.vercel.app/api/payment";
 
 function Cart() {
-  const { cart, removeFromCart, updateQuantity, cartTotal } = useCart();
+  const { cart, removeFromCart, updateQuantity, cartTotal, clearCart } = useCart();
+  const { user } = useAuth();
   const [showCheckout, setShowCheckout] = useState(false);
   const [step, setStep] = useState(1); // 1: info, 2: payment, 3: success
   const [formData, setFormData] = useState({
@@ -15,10 +21,90 @@ function Cart() {
     cardName: "", cardNumber: "", expiry: "", cvv: "",
   });
 
-  const shipping = cartTotal >= 50 || cartTotal === 0 ? 0 : 6.99;
-  const tax = cartTotal * 0.08;
-  const orderTotal = cartTotal + shipping + tax;
+  // ── Coupon code state ──
+  const validCoupons = {
+    SUMMER: 0.05,   // 5% off
+    WELCOME10: 0.10, // 10% off
+  };
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState(null); // { code, percent }
+  const [couponError, setCouponError] = useState("");
+
+  const handleApplyCoupon = () => {
+    const code = couponInput.trim().toUpperCase();
+    if (!code) return;
+    if (validCoupons[code]) {
+      setAppliedCoupon({ code, percent: validCoupons[code] });
+      setCouponError("");
+    } else {
+      setAppliedCoupon(null);
+      setCouponError("Invalid or expired code");
+    }
+  };
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponInput("");
+    setCouponError("");
+  };
+
+  const discountAmount = appliedCoupon ? cartTotal * appliedCoupon.percent : 0;
+  const discountedSubtotal = cartTotal - discountAmount;
+
+  const shipping = discountedSubtotal >= 50 || cartTotal === 0 ? 0 : 6.99;
+  const tax = discountedSubtotal * 0.08;
+  const orderTotal = discountedSubtotal + shipping + tax;
   const suggestions = products.slice(0, 4);
+
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
+
+  const handleSafepayPay = async () => {
+    setPaymentError("");
+    setPaymentLoading(true);
+
+    const orderId = `TT-${Date.now()}`;
+
+    try {
+      const res = await axios.post(SAFEPAY_API_URL, {
+        amount: parseFloat(orderTotal.toFixed(2)),
+        currency: "PKR",
+        customer: {
+          name: `${formData.firstName} ${formData.lastName}`,
+          email: formData.email,
+          phone: formData.phone,
+        },
+        product: `TerraThread Order (${cart.length} items)`,
+      });
+
+      const { tracker } = res.data;
+
+      // Save the pending order details locally so the success page can
+      // write it to Firestore once the user comes back from Safepay.
+      const pendingOrder = {
+        id: orderId,
+        date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+        createdAt: new Date().toISOString(),
+        items: cart.map(item => ({ name: item.name, price: item.price, img: item.img })),
+        total: parseFloat(orderTotal.toFixed(2)),
+        couponCode: appliedCoupon ? appliedCoupon.code : null,
+        discount: parseFloat(discountAmount.toFixed(2)),
+        address: `${formData.address}, ${formData.city}`,
+        customer: `${formData.firstName} ${formData.lastName}`,
+        email: formData.email,
+        phone: formData.phone,
+      };
+      localStorage.setItem("tt_pending_order", JSON.stringify(pendingOrder));
+
+      const baseCheckoutUrl = "https://sandbox.api.getsafepay.com/checkout";
+      const redirectUrl = `${baseCheckoutUrl}?env=sandbox&beacon=${tracker}&source=website&redirect_url=${window.location.origin}/order-success&cancel_url=${window.location.origin}/cart`;
+      window.location.href = redirectUrl;
+    } catch (err) {
+      console.error("Safepay payment error:", err);
+      setPaymentError("Payment failed to start. Please try again.");
+      setPaymentLoading(false);
+    }
+  };
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
@@ -30,27 +116,32 @@ function Cart() {
     setStep(2);
   };
 
-  // const handlePay = (e) => {
-  //   e.preventDefault();
-  //   setStep(3);
-  // };
-const handlePay = (e) => {
+const handlePay = async (e) => {
   e.preventDefault();
+  const orderId = `TT-${Date.now()}`;
   const newOrder = {
-    id: `TT-${Date.now()}`,
+    id: orderId,
+    userId: user?.uid || null,
     date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+    createdAt: new Date().toISOString(),
     status: "processing",
     items: cart.map(item => ({ name: item.name, price: item.price, img: item.img })),
     total: parseFloat(orderTotal.toFixed(2)),
+    couponCode: appliedCoupon ? appliedCoupon.code : null,
+    discount: parseFloat(discountAmount.toFixed(2)),
     address: `${formData.address}, ${formData.city}`,
     customer: `${formData.firstName} ${formData.lastName}`,
     email: formData.email,
+    phone: formData.phone,
   };
 
+  try {
+    await setDoc(doc(db, "orders", orderId), newOrder);
+    clearCart();
+  } catch (err) {
+    console.error("Failed to save order:", err);
+  }
 
-
-  const existing = JSON.parse(localStorage.getItem('tt_orders') || '[]');
-  localStorage.setItem('tt_orders', JSON.stringify([newOrder, ...existing]));
   setStep(3);
 };
 
@@ -122,23 +213,65 @@ const handlePay = (e) => {
             ))}
 
             {/* Free shipping progress */}
-            {cartTotal < 50 && (
+            {discountedSubtotal < 50 && (
               <div className="rounded-2xl p-4" style={{ background: '#F5F0E8' }}>
                 <div className="flex justify-between mb-2">
                   <p className="font-body text-xs font-bold uppercase tracking-wide text-charcoal">Free Shipping Progress</p>
-                  <p className="font-body text-xs font-bold" style={{ color: '#A8553D' }}>${(50 - cartTotal).toFixed(2)} away</p>
+                  <p className="font-body text-xs font-bold" style={{ color: '#A8553D' }}>${(50 - discountedSubtotal).toFixed(2)} away</p>
                 </div>
                 <div className="w-full h-2 rounded-full" style={{ background: '#E8DCC8' }}>
-                  <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${Math.min((cartTotal / 50) * 100, 100)}%`, background: '#A8553D' }} />
+                  <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${Math.min((discountedSubtotal / 50) * 100, 100)}%`, background: '#A8553D' }} />
                 </div>
               </div>
             )}
-            {cartTotal >= 50 && (
+            {discountedSubtotal >= 50 && (
               <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: 'rgba(168,85,61,0.08)', border: '1.5px solid #A8553D' }}>
                 <i className="ti ti-truck" style={{ fontSize: '20px', color: '#A8553D' }} />
                 <p className="font-body text-sm font-bold text-charcoal">You've unlocked <span style={{ color: '#A8553D' }}>Free Shipping!</span></p>
               </div>
             )}
+
+            {/* Coupon code */}
+            <div className="rounded-2xl p-4" style={{ background: '#F5F0E8' }}>
+              <p className="font-body text-xs font-bold uppercase tracking-wide text-charcoal mb-3">Have a discount code?</p>
+
+              {!appliedCoupon ? (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={couponInput}
+                    onChange={(e) => { setCouponInput(e.target.value); setCouponError(""); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyCoupon(); } }}
+                    placeholder="Enter code e.g. SUMMER"
+                    className="flex-1 px-4 py-3 rounded-xl font-body text-sm text-charcoal outline-none uppercase"
+                    style={{ background: '#FBF8F3', border: `2px solid ${couponError ? '#E8614A' : 'transparent'}` }}
+                  />
+                  <button
+                    onClick={handleApplyCoupon}
+                    className="px-6 py-3 rounded-xl font-body font-bold text-xs uppercase tracking-widest text-cream transition-all duration-300 hover:opacity-90 cursor-pointer flex-shrink-0"
+                    style={{ background: '#A8553D' }}
+                  >
+                    Apply
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between rounded-xl px-4 py-3" style={{ background: 'rgba(168,85,61,0.08)', border: '1.5px solid #A8553D' }}>
+                  <div className="flex items-center gap-2">
+                    <i className="ti ti-discount-check" style={{ fontSize: '18px', color: '#A8553D' }} />
+                    <span className="font-body font-bold text-sm text-charcoal">
+                      {appliedCoupon.code} applied — {Math.round(appliedCoupon.percent * 100)}% off
+                    </span>
+                  </div>
+                  <button onClick={removeCoupon} className="font-body text-xs font-bold cursor-pointer" style={{ color: '#E8614A' }}>
+                    Remove
+                  </button>
+                </div>
+              )}
+
+              {couponError && (
+                <p className="font-body text-xs mt-2" style={{ color: '#E8614A' }}>{couponError}</p>
+              )}
+            </div>
           </div>
 
           {/* Order summary */}
@@ -150,6 +283,12 @@ const handlePay = (e) => {
                 <span>Subtotal ({cart.length} items)</span>
                 <span>${cartTotal.toFixed(2)}</span>
               </div>
+              {appliedCoupon && (
+                <div className="flex justify-between" style={{ color: '#C96F4A' }}>
+                  <span>Discount ({appliedCoupon.code})</span>
+                  <span>-${discountAmount.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between" style={{ color: 'rgba(251,248,243,0.6)' }}>
                 <span>Shipping</span>
                 <span style={{ color: shipping === 0 ? '#C96F4A' : 'rgba(251,248,243,0.6)' }}>
@@ -340,6 +479,12 @@ const handlePay = (e) => {
                       <span>Order Total</span>
                       <span className="font-bold text-charcoal">${orderTotal.toFixed(2)}</span>
                     </div>
+                    {appliedCoupon && (
+                      <div className="flex justify-between font-body text-xs mb-1" style={{ color: '#A8553D' }}>
+                        <span>Coupon {appliedCoupon.code} applied</span>
+                        <span>-${discountAmount.toFixed(2)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between font-body text-xs text-charcoal/40">
                       <span>{cart.length} items · {shipping === 0 ? 'Free shipping' : `$${shipping} shipping`}</span>
                       <span>Tax: ${tax.toFixed(2)}</span>
@@ -361,7 +506,7 @@ const handlePay = (e) => {
 
               {/* STEP 2 — Payment */}
               {step === 2 && (
-                <form onSubmit={handlePay} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-4">
 
                   {/* Delivery address recap */}
                   <div className="rounded-2xl p-4 flex items-start gap-3" style={{ background: '#F5F0E8' }}>
@@ -373,124 +518,59 @@ const handlePay = (e) => {
                     <button type="button" onClick={() => setStep(1)} className="ml-auto font-body text-xs font-bold cursor-pointer" style={{ color: '#A8553D' }}>Edit</button>
                   </div>
 
-                  {/* Payment method tabs */}
-                  <div>
-                    <p className="font-body text-xs font-bold uppercase tracking-wide text-charcoal/60 mb-3">Payment Method</p>
-                    <div className="grid grid-cols-3 gap-2 mb-4">
-                      {["Credit Card", "PayPal", "Cash on Delivery"].map((method, i) => (
-                        <div
-                          key={method}
-                          className="rounded-xl p-3 text-center cursor-pointer transition-all duration-200"
-                          style={{
-                            background: i === 0 ? '#A8553D' : '#F5F0E8',
-                            color: i === 0 ? '#FBF8F3' : '#2D2A26',
-                            border: i === 0 ? 'none' : '1.5px solid #E8DCC8',
-                          }}
-                        >
-                          <i className={`ti ${["ti-credit-card", "ti-brand-paypal", "ti-cash"][i]}`} style={{ fontSize: '18px', display: 'block', marginBottom: '4px' }} />
-                          <span className="font-body font-bold text-[9px] uppercase tracking-wide">{method}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Card fields */}
-                  <div>
-                    <label className="font-body text-xs font-bold uppercase tracking-wide text-charcoal/60 mb-1.5 block">Name on Card</label>
-                    <input
-                      type="text"
-                      name="cardName"
-                      value={formData.cardName}
-                      onChange={handleChange}
-                      required
-                      placeholder="Sara Ahmed"
-                      className="w-full px-4 py-3 rounded-xl font-body text-sm text-charcoal outline-none"
-                      style={{ background: '#F5F0E8', border: '2px solid transparent' }}
-                      onFocus={(e) => e.target.style.borderColor = '#A8553D'}
-                      onBlur={(e) => e.target.style.borderColor = 'transparent'}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="font-body text-xs font-bold uppercase tracking-wide text-charcoal/60 mb-1.5 block">Card Number</label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        name="cardNumber"
-                        value={formData.cardNumber}
-                        onChange={(e) => setFormData({ ...formData, cardNumber: formatCard(e.target.value) })}
-                        required
-                        placeholder="1234 5678 9012 3456"
-                        maxLength={19}
-                        className="w-full px-4 py-3 rounded-xl font-body text-sm text-charcoal outline-none pr-12"
-                        style={{ background: '#F5F0E8', border: '2px solid transparent' }}
-                        onFocus={(e) => e.target.style.borderColor = '#A8553D'}
-                        onBlur={(e) => e.target.style.borderColor = 'transparent'}
-                      />
-                      <i className="ti ti-credit-card absolute right-4 top-1/2 -translate-y-1/2" style={{ fontSize: '18px', color: '#9A948D' }} />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="font-body text-xs font-bold uppercase tracking-wide text-charcoal/60 mb-1.5 block">Expiry Date</label>
-                      <input
-                        type="text"
-                        name="expiry"
-                        value={formData.expiry}
-                        onChange={(e) => setFormData({ ...formData, expiry: formatExpiry(e.target.value) })}
-                        required
-                        placeholder="MM/YY"
-                        maxLength={5}
-                        className="w-full px-4 py-3 rounded-xl font-body text-sm text-charcoal outline-none"
-                        style={{ background: '#F5F0E8', border: '2px solid transparent' }}
-                        onFocus={(e) => e.target.style.borderColor = '#A8553D'}
-                        onBlur={(e) => e.target.style.borderColor = 'transparent'}
-                      />
-                    </div>
-                    <div>
-                      <label className="font-body text-xs font-bold uppercase tracking-wide text-charcoal/60 mb-1.5 block">CVV</label>
-                      <input
-                        type="password"
-                        name="cvv"
-                        value={formData.cvv}
-                        onChange={handleChange}
-                        required
-                        placeholder="•••"
-                        maxLength={4}
-                        className="w-full px-4 py-3 rounded-xl font-body text-sm text-charcoal outline-none"
-                        style={{ background: '#F5F0E8', border: '2px solid transparent' }}
-                        onFocus={(e) => e.target.style.borderColor = '#A8553D'}
-                        onBlur={(e) => e.target.style.borderColor = 'transparent'}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Total */}
+                  {/* Order total recap */}
                   <div className="rounded-2xl p-4" style={{ background: '#F5F0E8' }}>
-                    <div className="flex justify-between font-body text-sm">
-                      <span className="text-charcoal/60">Total to Pay</span>
+                    <div className="flex justify-between font-body text-sm text-charcoal/60 mb-1">
+                      <span>Subtotal</span>
+                      <span>${cartTotal.toFixed(2)}</span>
+                    </div>
+                    {appliedCoupon && (
+                      <div className="flex justify-between font-body text-xs mb-1" style={{ color: '#A8553D' }}>
+                        <span>Coupon {appliedCoupon.code}</span>
+                        <span>-${discountAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-body text-sm border-t border-charcoal/10 pt-2 mt-2">
+                      <span className="font-bold text-charcoal">Total to Pay</span>
                       <span className="font-black text-charcoal text-lg">${orderTotal.toFixed(2)}</span>
                     </div>
                   </div>
 
-                  {/* Pay button */}
+                  {paymentError && (
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl" style={{ background: 'rgba(220,38,38,0.08)' }}>
+                      <i className="ti ti-alert-circle" style={{ fontSize: '14px', color: '#DC2626' }} />
+                      <p className="font-body text-xs font-bold" style={{ color: '#DC2626' }}>{paymentError}</p>
+                    </div>
+                  )}
+
+                  {/* Pay button — redirects to Safepay's real hosted checkout */}
                   <button
-                    type="submit"
-                    className="w-full inline-flex items-center justify-center gap-3 font-body font-bold text-xs uppercase tracking-widest text-cream rounded-full transition-all duration-300 hover:opacity-90 hover:scale-[1.02] cursor-pointer"
+                    onClick={handleSafepayPay}
+                    disabled={paymentLoading}
+                    className="w-full inline-flex items-center justify-center gap-3 font-body font-bold text-xs uppercase tracking-widest text-cream rounded-full transition-all duration-300 hover:opacity-90 hover:scale-[1.02] cursor-pointer disabled:opacity-50"
                     style={{ background: '#A8553D', padding: '14px' }}
                   >
                     <i className="ti ti-lock" style={{ fontSize: '14px' }} />
-                    Pay ${orderTotal.toFixed(2)} Securely
-                    <span className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: '#C96F4A' }}>
-                      <i className="ti ti-arrow-right" style={{ fontSize: '12px', color: '#FBF8F3' }} />
-                    </span>
+                    {paymentLoading ? "Redirecting to Safepay..." : `Pay $${orderTotal.toFixed(2)} with Safepay`}
+                    {!paymentLoading && (
+                      <span className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: '#C96F4A' }}>
+                        <i className="ti ti-arrow-right" style={{ fontSize: '12px', color: '#FBF8F3' }} />
+                      </span>
+                    )}
                   </button>
 
+                  <div className="flex items-center justify-center gap-2 flex-wrap">
+                    {["Visa", "Mastercard", "JazzCash", "Easypaisa"].map((c) => (
+                      <span key={c} className="px-2.5 py-1 rounded text-[10px] font-bold" style={{ background: '#F5F0E8', color: '#6B6560' }}>
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+
                   <p className="font-body text-[10px] text-center text-charcoal/40 uppercase tracking-wide">
-                    🔒 256-bit SSL encrypted · Your data is safe
+                    256-bit SSL encrypted · Powered by Safepay
                   </p>
-                </form>
+                </div>
               )}
 
               {/* STEP 3 — Success */}
@@ -517,6 +597,12 @@ const handlePay = (e) => {
                       <span className="text-charcoal/60">{cart.length} Items</span>
                       <span className="font-bold text-charcoal">${cartTotal.toFixed(2)}</span>
                     </div>
+                    {appliedCoupon && (
+                      <div className="flex justify-between font-body text-sm mb-1" style={{ color: '#A8553D' }}>
+                        <span>Discount ({appliedCoupon.code})</span>
+                        <span>-${discountAmount.toFixed(2)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between font-body text-sm mb-1">
                       <span className="text-charcoal/60">Shipping</span>
                       <span className="font-bold" style={{ color: shipping === 0 ? '#A8553D' : '#2D2A26' }}>{shipping === 0 ? 'Free' : `$${shipping.toFixed(2)}`}</span>

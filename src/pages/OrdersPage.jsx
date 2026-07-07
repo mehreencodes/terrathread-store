@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db } from "../firebase";
 
 const steps = ["Order Placed", "Processing", "Shipped", "Out for Delivery", "Delivered"];
 
@@ -63,36 +65,32 @@ function OrdersPage() {
   const { user } = useAuth();
   const [expanded, setExpanded] = useState(null);
   const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem('tt_orders') || '[]');
-    if (stored.length > 0) {
-      setOrders(stored);
-    } else {
-      setOrders([
-        {
-          id: "TT-2026-001",
-          date: "June 20, 2026",
-          status: "delivered",
-          items: [{ name: "Wrap Maxi Dress", price: 99, img: "https://i.pinimg.com/736x/a6/e8/1a/a6e81a5cb8a90a7d87b4349deba65024.jpg" }],
-          total: 99,
-          address: "123 Summer Ave, Karachi",
-          customer: "Sara Ahmed",
-          email: "sara@email.com",
-        },
-        {
-          id: "TT-2026-002",
-          date: "June 23, 2026",
-          status: "shipped",
-          items: [{ name: "Silk Blouse", price: 65, img: "https://i.pinimg.com/736x/e7/2c/2b/e72c2bd53f63c05fe854680d2155c8c6.jpg" }],
-          total: 65,
-          address: "456 Fashion St, Lahore",
-          customer: "Aisha Khan",
-          email: "aisha@email.com",
-        },
-      ]);
-    }
-  }, []);
+    const fetchOrders = async () => {
+      if (!user) {
+        setOrders([]);
+        setLoading(false);
+        return;
+      }
+      try {
+        const q = query(collection(db, "orders"), where("userId", "==", user.uid));
+        const snap = await getDocs(q);
+        const fetched = snap.docs.map((d) => d.data());
+        // Newest first
+        fetched.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        setOrders(fetched);
+      } catch (err) {
+        console.error("Failed to fetch orders:", err);
+        setOrders([]);
+      }
+      setLoading(false);
+    };
+
+    setLoading(true);
+    fetchOrders();
+  }, [user]);
 
   if (!user) {
     return (
@@ -113,6 +111,18 @@ function OrdersPage() {
     );
   }
 
+  if (loading) {
+    return (
+      <div className="pt-32 pb-20 px-6 text-center min-h-screen bg-cream">
+        <div
+          className="w-8 h-8 rounded-full border-2 animate-spin mx-auto"
+          style={{ borderColor: '#E8DCC8', borderTopColor: '#A8553D' }}
+        />
+        <p className="font-body text-sm text-charcoal/50 mt-4">Loading your orders...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="pt-28 pb-20 px-6 md:px-12 bg-cream min-h-screen">
       <div className="max-w-3xl mx-auto">
@@ -127,6 +137,22 @@ function OrdersPage() {
           <p className="font-body text-sm text-charcoal/50 mt-2">{orders.length} orders found</p>
         </div>
 
+        {orders.length === 0 ? (
+          <div className="text-center py-20">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5" style={{ background: '#F5F0E8' }}>
+              <i className="ti ti-shopping-bag" style={{ fontSize: '28px', color: '#A8553D' }} />
+            </div>
+            <p className="font-display uppercase text-xl text-charcoal mb-2">No Orders Yet</p>
+            <p className="text-charcoal/50 font-body mb-6">When you place an order, it will show up here.</p>
+            <Link
+              to="/shop"
+              className="inline-flex items-center gap-3 font-body font-bold text-xs uppercase tracking-widest text-cream rounded-full"
+              style={{ background: '#A8553D', padding: '13px 24px' }}
+            >
+              Start Shopping
+            </Link>
+          </div>
+        ) : (
         <div className="flex flex-col gap-5">
           {orders.map((order) => (
             <div
@@ -215,6 +241,7 @@ function OrdersPage() {
             </div>
           ))}
         </div>
+        )}
       </div>
     </div>
   );

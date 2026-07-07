@@ -4,6 +4,8 @@ import { products } from "../data/products";
 import { useCart } from "../context/CartContext";
 import { useWishlist } from "../context/WishlistContext";
 import ProductCard from "../components/ProductCard";
+import { getReviewsForProduct, getAverageRating, getReviewCount } from "../data/reviews";
+import { getStockLabel } from "../data/stock";
 
 function ProductDetail() {
   const { id } = useParams();
@@ -143,7 +145,9 @@ function ProductDetail() {
                   <span key={s} style={{ color: '#C96F4A', fontSize: '14px' }}>★</span>
                 ))}
               </div>
-              <span className="font-body text-xs text-charcoal/50">(4.8) · 124 reviews</span>
+              <span className="font-body text-xs text-charcoal/50">
+                ({getAverageRating(product.id)}) · {getReviewCount(product.id)} reviews
+              </span>
             </div>
 
             <div className="h-px bg-charcoal/8" />
@@ -163,27 +167,48 @@ function ProductDetail() {
                   Size Guide
                 </button>
               </div>
-              <div className="flex gap-2 flex-wrap">
-                {["XS", "S", "M", "L", "XL", "XXL"].map((size) => (
-                  <button
-                    key={size}
-                    onClick={() => { setSelectedSize(size); setSizeError(false); }}
-                    className="w-11 h-11 rounded-full font-body font-bold text-xs transition-all duration-200 hover:scale-105 cursor-pointer"
-                    style={{
-                      background: selectedSize === size ? '#A8553D' : '#F0EBE3',
-                      color: selectedSize === size ? '#FBF8F3' : '#2D2A26',
-                      border: sizeError ? '1.5px solid #E8614A' : 'none',
-                    }}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-              {sizeError && (
-                <p className="font-body text-xs mt-2" style={{ color: '#E8614A' }}>
-                  Please select a size to continue
-                </p>
-              )}
+     <div className="flex gap-2 flex-wrap">
+  {["XS", "S", "M", "L", "XL", "XXL"].map((size) => {
+    const stockInfo = getStockLabel(product.id, size);
+    return (
+      <button
+        key={size}
+        disabled={stockInfo.outOfStock}
+        onClick={() => { setSelectedSize(size); setSizeError(false); }}
+        className="relative w-11 h-11 rounded-full font-body font-bold text-xs transition-all duration-200 hover:scale-105"
+        style={{
+          background: stockInfo.outOfStock ? '#F0EBE3' : (selectedSize === size ? '#A8553D' : '#F0EBE3'),
+          color: stockInfo.outOfStock ? '#C4BEB5' : (selectedSize === size ? '#FBF8F3' : '#2D2A26'),
+          border: sizeError ? '1.5px solid #E8614A' : 'none',
+          cursor: stockInfo.outOfStock ? 'not-allowed' : 'pointer',
+          textDecoration: stockInfo.outOfStock ? 'line-through' : 'none',
+        }}
+      >
+        {size}
+      </button>
+    );
+  })}
+</div>
+
+{/* Stock message for selected size */}
+{selectedSize && (() => {
+  const stockInfo = getStockLabel(product.id, selectedSize);
+  if (stockInfo.urgent) {
+    return (
+      <p className="font-body text-xs font-bold mt-2 flex items-center gap-1.5" style={{ color: '#E8614A' }}>
+        <i className="ti ti-flame" style={{ fontSize: '14px' }} />
+        {stockInfo.label} in size {selectedSize} — order soon!
+      </p>
+    );
+  }
+  return null;
+})()}
+
+{sizeError && (
+  <p className="font-body text-xs mt-2" style={{ color: '#E8614A' }}>
+    Please select a size to continue
+  </p>
+)}
             </div>
 
             {/* Quantity */}
@@ -284,11 +309,7 @@ function ProductDetail() {
                 )}
                 {activeTab === "reviews" && (
                   <div className="flex flex-col gap-4">
-                    {[
-                      { name: "Sarah J.", rating: 5, text: "Absolutely love this piece! The quality is amazing and fits perfectly.", date: "2 days ago" },
-                      { name: "Emma L.", rating: 4, text: "Great product, fast delivery. Will definitely order again!", date: "1 week ago" },
-                      { name: "Mia K.", rating: 5, text: "Exactly as shown in the picture. Very happy with my purchase.", date: "2 weeks ago" },
-                    ].map((review, i) => (
+                    {getReviewsForProduct(product.id).map((review, i) => (
                       <div key={i} className="p-4 rounded-2xl" style={{ background: '#F5F0E8' }}>
                         <div className="flex items-center justify-between mb-2">
                           <div>
