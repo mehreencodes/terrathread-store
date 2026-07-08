@@ -16,7 +16,6 @@ import About from "./pages/About";
 import Contact from "./pages/Contact";
 import OrdersPage from "./pages/OrdersPage";
 import AdminPage from "./pages/AdminPage";
-import CustomCursor from "./components/CustomCursor";
 import WhatsAppButton from "./components/WhatsAppButton";
 import OrderSuccess from "./pages/OrderSuccess";
 
@@ -26,7 +25,7 @@ function App() {
     <AuthProvider>
       <WishlistProvider>
         <CartProvider>
-          <CustomCursor />
+         
 <WhatsAppButton />
           <BrowserRouter>
             <div className="bg-cream min-h-screen flex flex-col">
